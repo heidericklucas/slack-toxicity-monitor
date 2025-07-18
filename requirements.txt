@@ -1,0 +1,8 @@
+flask
+requests
+slack_sdk
+transformers
+torch
+python-dotenv
+openai
+sentence-transformers
