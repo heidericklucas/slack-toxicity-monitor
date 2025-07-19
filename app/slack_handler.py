@@ -246,7 +246,7 @@ def is_reasonable_response(text, context_text, model_score, category):
         return False
 
 # --- Main entry point for processing Slack messages ---
-def handle_slack_event(req):
+def handle_slack_event(payload):
     """
     Main entry point for handling Slack events, processes and classifies messages for toxicity.
     """
@@ -274,7 +274,6 @@ def handle_slack_event(req):
     if not signature_verifier.is_valid_request(request.data, request.headers):
         abort(400, "Invalid request signature")
 
-    payload = req.json
     if "challenge" in payload:
         return jsonify({"challenge": payload["challenge"]})
 
@@ -449,17 +448,3 @@ def handle_slack_event(req):
 
     # Fallback: always return a valid Flask response
     return jsonify({"status": "event processed"}), 200
-
-def handle_slack_event(data):
-    event = data.get("event", {})
-
-    # Ignore non-user messages (e.g., bot messages, channel joins)
-    if event.get("type") != "message" or "subtype" in event:
-        return
-
-    text = event.get("text", "")
-    user_id = event.get("user")
-    channel_id = event.get("channel")
-
-    # Placeholder logic – replace this with your OpenAI GPT-4o toxicity analysis and Slack response
-    print(f"Handling message from user {user_id} in channel {channel_id}: {text}")
