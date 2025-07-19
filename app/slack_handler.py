@@ -24,6 +24,11 @@ COERCIVE_AUTHORITY_THRESHOLD = 0.5
 CONDESCENSION_THRESHOLD = 0.3
 SEXUAL_LANGUAGE_THRESHOLD = 0.5  # use harassment as proxy for sexual language if needed
 
+# Unified warning message for threats
+THREAT_WARNING_MESSAGE = (
+    ":rotating_light: <@{user_id}>, your message contains a threat. This type of language is not appropriate."
+)
+
 # --- GPT System Prompt ---
 GPT_SYSTEM_PROMPT = (
     "You are a toxicity classifier for workplace chat messages. Given the conversation context below, "
@@ -314,7 +319,7 @@ def handle_slack_event(payload):
         if explicit_threat:
             send_warning_to_slack(
                 channel,
-                f":rotating_light: <@{user_id}>, your message contains an explicit threat. This type of language is not appropriate."
+                THREAT_WARNING_MESSAGE.format(user_id=user_id)
             )
             return make_response("", 200)
 
@@ -332,7 +337,7 @@ def handle_slack_event(payload):
         if implicit_threat:
             send_warning_to_slack(
                 channel,
-                f":warning: <@{user_id}>, your message may contain an explicit or implicit threat. Please reconsider your tone."
+                THREAT_WARNING_MESSAGE.format(user_id=user_id)
             )
             return make_response("", 200)
 
@@ -428,7 +433,7 @@ def handle_slack_event(payload):
 
         warning_message = None
         if "threat" in categories:
-            warning_message = f":rotating_light: <@{user_id}>, your message contains a threat. This type of language is not appropriate."
+            warning_message = THREAT_WARNING_MESSAGE.format(user_id=user_id)
         elif "coercive" in categories:
             warning_message = (
                 f":warning: <@{user_id}>, your message may come across as controlling or overly authoritative. "
