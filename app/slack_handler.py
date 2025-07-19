@@ -314,7 +314,7 @@ def handle_slack_event(payload):
         if explicit_threat:
             send_warning_to_slack(
                 channel,
-                f":rotating_light: <@{user_id}>, sua mensagem contém uma ameaça explícita. Esse tipo de linguagem não é apropriado."
+                f":rotating_light: <@{user_id}>, your message contains an explicit threat. This type of language is not appropriate."
             )
             return make_response("", 200)
 
@@ -332,7 +332,7 @@ def handle_slack_event(payload):
         if implicit_threat:
             send_warning_to_slack(
                 channel,
-                f":warning: <@{user_id}>, sua mensagem pode conter uma ameaça explícita ou implícita. Por favor, reconsidere o tom."
+                f":warning: <@{user_id}>, your message may contain an explicit or implicit threat. Please reconsider your tone."
             )
             return make_response("", 200)
 
@@ -428,11 +428,14 @@ def handle_slack_event(payload):
 
         warning_message = None
         if "threat" in categories:
-            warning_message = f":rotating_light: <@{user_id}>, sua mensagem contém uma ameaça. Esse tipo de linguagem não é apropriado."
+            warning_message = f":rotating_light: <@{user_id}>, your message contains a threat. This type of language is not appropriate."
         elif "coercive" in categories:
-            warning_message = f":warning: <@{user_id}>, sua mensagem contém autoridade excessiva. Por favor, mantenha o respeito."
+            warning_message = (
+                f":warning: <@{user_id}>, your message may come across as controlling or overly authoritative. "
+                "Please reconsider your tone to maintain respect."
+            )
         elif "abusive" in categories:
-            warning_message = f":warning: <@{user_id}>, sua mensagem contém linguagem abusiva ou ofensiva. Por favor, mantenha o respeito."
+            warning_message = f":warning: <@{user_id}>, your message contains abusive or offensive language. Please maintain respect."
 
         if warning_message:
             send_warning_to_slack(channel, warning_message)
