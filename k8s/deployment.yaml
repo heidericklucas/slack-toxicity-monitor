@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: slack-toxicity-monitor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: slack-toxicity-monitor
+  template:
+    metadata:
+      labels:
+        app: slack-toxicity-monitor
+    spec:
+      containers:
+        - name: app
+          image: lucashvieira/slack-toxicity-monitor:1.0.1
+          env:
+            - name: PORT
+              value: "5000"
+          envFrom:
+            - secretRef:
+                name: slack-secret
+            - secretRef:
+                name: openai-secret

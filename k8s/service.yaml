@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: slack-toxicity-monitor
+spec:
+  selector:
+    app: slack-toxicity-monitor
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000  # change this to match the port your app exposes
+      nodePort: 30080   # must be in the range 30000-32767
+  type: NodePort

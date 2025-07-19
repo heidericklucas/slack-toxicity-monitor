@@ -1,14 +1,38 @@
+# Ensure this function is available for import in main.py
+__all__ = ["handle_slack_event"]
+# --- Standard Library ---
 import os
+import re
+import time
+from datetime import datetime
+from threading import Thread
+
+# --- Third-Party Libraries ---
 from slack_sdk import WebClient
 from slack_sdk.webhook import WebhookClient
 from slack_sdk.signature import SignatureVerifier
-from flask import request, jsonify, abort, Response, make_response
-from datetime import datetime
-from threading import Thread
-import time
-from openai import OpenAI
-
 from slack_sdk.errors import SlackApiError
+from flask import request, jsonify, abort, Response, make_response
+from openai import OpenAI
+from sentence_transformers import SentenceTransformer, util
+
+# --- Toxicity Thresholds ---
+AGGRESSION_THRESHOLD = 0.5
+HARASSMENT_THRESHOLD = 0.5
+THREAT_THRESHOLD = 0.5
+COERCIVE_AUTHORITY_THRESHOLD = 0.5
+CONDESCENSION_THRESHOLD = 0.3
+SEXUAL_LANGUAGE_THRESHOLD = 0.5  # use harassment as proxy for sexual language if needed
+
+# --- GPT System Prompt ---
+GPT_SYSTEM_PROMPT = (
+    "You are a toxicity classifier for workplace chat messages. Given the conversation context below, "
+    "return a JSON object with a `scores` dictionary (toxic category: float between 0 and 1) and `triggered` list of triggered labels. "
+    "Toxicity categories include: `aggression`, `harassment`, `threat`, `coercive_authority`, and `condescension`. "
+    "The category `coercive_authority` refers to subtle or indirect language that pressures, monitors, or corrects someone’s behavior by "
+    "implying hierarchical control, using policy speak, surveillance language, or piling on questions that make the recipient feel micromanaged or distrusted. "
+    "However, if the message is from a manager responding to previous unprofessional behavior, and the tone is proportionate and necessary for accountability or clarity, it should not be flagged."
+)
 
 client = OpenAI()
 
@@ -22,10 +46,7 @@ signature_verifier = SignatureVerifier(signing_secret=slack_signing_secret)
 
 toxicity_log = {}
 
-from sentence_transformers import SentenceTransformer, util
-
 # --- Legal justification keywords (for skipping warnings if message asserts legal rights) ---
-import re
 LEGAL_JUSTIFICATION_KEYWORDS = [
     "attorney general",
     "massachusetts law",
@@ -54,6 +75,9 @@ LEGAL_JUSTIFICATION_KEYWORDS = [
 ]
 
 def contains_legal_justification(text: str) -> bool:
+    """
+    Checks if the text contains legal justification keywords to skip toxicity warnings.
+    """
     try:
         text_lower = text.lower()
         result = any(re.search(rf"\b{re.escape(phrase)}\b", text_lower) for phrase in LEGAL_JUSTIFICATION_KEYWORDS)
@@ -69,7 +93,7 @@ if "sbert_model" not in globals():
 
 def is_likely_quoted(text, context_window):
     """
-    Return True if text is likely quoting any recent message from the context window.
+    Returns True if the text is likely quoting any recent message from the context window.
     """
     try:
         if not context_window or not text:
@@ -96,6 +120,9 @@ def is_likely_quoted(text, context_window):
 
 # --- New inappropriate language check ---
 def is_inappropriate_language(text):
+    """
+    Detects if the text contains abusive or threatening keywords.
+    """
     try:
         abusive_keywords = [
             "idiota", "burro", "imbecil", "estúpido", "palhaço", "otário",
@@ -118,6 +145,9 @@ def is_inappropriate_language(text):
         return False
 
 def send_warning_to_slack(channel_id, message):
+    """
+    Sends a warning message to the specified Slack channel.
+    """
     try:
         print(f"Sending warning to Slack channel {channel_id}: {message}")
         client_slack.chat_postMessage(channel=channel_id, text=message)
@@ -126,7 +156,9 @@ def send_warning_to_slack(channel_id, message):
 
 # Helper to fetch conversation context with rate limit handling
 def fetch_conversation_context(channel, message_ts, context_limit=20):
-    import time
+    """
+    Fetches the conversation context for a given channel and message timestamp, with rate limit handling.
+    """
     for attempt in range(3):
         try:
             response = client_slack.conversations_history(
@@ -152,6 +184,9 @@ def fetch_conversation_context(channel, message_ts, context_limit=20):
     return []
 
 def send_weekly_toxicity_summaries():
+    """
+    Sends weekly summaries of toxicity scores to users and clears the toxicity log.
+    """
     while True:
         time.sleep(7 * 24 * 60 * 60)  # wait one week
         for user_id, entries in toxicity_log.items():
@@ -175,6 +210,9 @@ def send_weekly_toxicity_summaries():
         toxicity_log.clear()
 
 def is_reasonable_response(text, context_text, model_score, category):
+    """
+    Determines if a response is reasonable given the context and toxicity category.
+    """
     try:
         if category != "coercive_authority":
             print(f"is_reasonable_response: Category {category} not coercive_authority, returning False")
@@ -207,8 +245,15 @@ def is_reasonable_response(text, context_text, model_score, category):
         print(f"Error in is_reasonable_response: {e}")
         return False
 
+# --- Main entry point for processing Slack messages ---
 def handle_slack_event(req):
+    """
+    Main entry point for handling Slack events, processes and classifies messages for toxicity.
+    """
     def get_message_history(channel, message_ts):
+        """
+        Retrieves message history for a given channel and timestamp.
+        """
         try:
             response = client_slack.conversations_history(
                 channel=channel,
@@ -253,8 +298,6 @@ def handle_slack_event(req):
             "vai se arrepender", "te coloco na rua", "não vai mais trabalhar aqui"
         ]
 
-        from sentence_transformers import util
-
         threat_phrases = [
             "vou te demitir", "isso vai custar caro", "vai se arrepender",
             "vai ter consequências", "isso não vai ficar assim", "isso pode custar o emprego",
@@ -296,11 +339,11 @@ def handle_slack_event(req):
 
         # Check abusive language
         try:
-            abusive = is_inappropriate_language(text)
-            print(f"Flags: abusive={abusive}")
+            abusive_flag = is_inappropriate_language(text)
+            print(f"Flags: abusive={abusive_flag}")
         except Exception as e:
             print(f"Error during abusive language detection: {e}")
-            abusive = False
+            abusive_flag = False
 
         # Fetch conversation history for context
         try:
@@ -326,7 +369,7 @@ def handle_slack_event(req):
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a toxicity classifier for workplace chat messages. Given the conversation context below, return a JSON object with a `scores` dictionary (toxic category: float between 0 and 1) and `triggered` list of triggered labels. Toxicity categories include: `aggression`, `harassment`, `threat`, `coercive_authority`, and `condescension`. The category `coercive_authority` refers to subtle or indirect language that pressures, monitors, or corrects someone’s behavior by implying hierarchical control, using policy speak, surveillance language, or piling on questions that make the recipient feel micromanaged or distrusted. However, if the message is from a manager responding to previous unprofessional behavior, and the tone is proportionate and necessary for accountability or clarity, it should not be flagged."
+                        "content": GPT_SYSTEM_PROMPT
                     },
                     {
                         "role": "user",
@@ -350,7 +393,7 @@ def handle_slack_event(req):
 
         # If scores dict is empty and not abusive, skip processing
         flags = {
-            "abusive": abusive,
+            "abusive": abusive_flag,
             "explicit_threat": explicit_threat,
             "implicit_threat": implicit_threat,
         }
@@ -365,12 +408,6 @@ def handle_slack_event(req):
         triggered = result.get("triggered", [])
 
         # --- Consolidated warning logic: only send one warning per message, prioritizing by severity ---
-        AGGRESSION_THRESHOLD = 0.5
-        HARASSMENT_THRESHOLD = 0.5
-        THREAT_THRESHOLD = 0.5
-        COERCIVE_AUTHORITY_THRESHOLD = 0.5
-        CONDESCENSION_THRESHOLD = 0.3
-        SEXUAL_LANGUAGE_THRESHOLD = 0.5  # use harassment as proxy for sexual language if needed
 
         # Determine which categories are triggered
         categories = set()
@@ -412,3 +449,17 @@ def handle_slack_event(req):
 
     # Fallback: always return a valid Flask response
     return jsonify({"status": "event processed"}), 200
+
+def handle_slack_event(data):
+    event = data.get("event", {})
+
+    # Ignore non-user messages (e.g., bot messages, channel joins)
+    if event.get("type") != "message" or "subtype" in event:
+        return
+
+    text = event.get("text", "")
+    user_id = event.get("user")
+    channel_id = event.get("channel")
+
+    # Placeholder logic – replace this with your OpenAI GPT-4o toxicity analysis and Slack response
+    print(f"Handling message from user {user_id} in channel {channel_id}: {text}")
